@@ -1,0 +1,328 @@
+---
+title: "Lung Cancer Data Analysis Report"
+author: "Irgya Genta Arnezzi"
+date: "2024-06-16"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+## Purpose and Context
+This report presents a comprehensive analysis of lung cancer survival data. The primary objective is to identify factors influencing patient survival and to understand the significance of various clinical and demographic variables.
+
+## Importance
+Understanding the factors that affect lung cancer survival can guide clinical decision-making, inform policy, and improve patient outcomes. This analysis provides insights that can help in tailoring treatments and improving prognosis.
+
+## Audience
+This report is intended for researchers, healthcare professionals, and stakeholders interested in lung cancer treatment and survival outcomes.
+
+## Objectives
+- To identify key factors influencing lung cancer survival.
+- To assess the statistical significance of these factors.
+- To provide visualizations and interpretative insights from the data.
+
+## Methods
+We employ Exploratory Data Analysis (EDA), Kaplan-Meier survival curves, and Cox proportional hazards modeling to analyze the data.
+
+## Assumptions and Limitations
+- The dataset is assumed to be representative of the broader population.
+- The analysis is limited by the variables available in the dataset.
+- Censoring is inferred based on the survival months.
+
+## Relevance
+This analysis is crucial for improving lung cancer treatment strategies and understanding patient prognosis.
+
+# Data Description
+
+The dataset comprises various clinical and demographic variables related to lung cancer patients. Below are the key variables:
+<br>
+- **Patient_ID**: Unique identifier for each patient.
+<br>
+- **Age**: Age of the patient.
+<br>
+- **Gender**: Gender of the patient.
+<br>
+- **Smoking_History**: History of smoking (Yes/No).
+<br>
+- **Tumor_Size_mm**: Size of the tumor in millimeters.
+<br>
+- **Tumor_Location**: Location of the tumor.
+<br>
+- **Stage**: Stage of cancer.
+<br>
+- **Treatment**: Type of treatment received.
+<br>
+- **Survival_Months**: Duration of survival or follow-up in months.
+<br>
+- **Ethnicity**: Ethnicity of the patient.
+<br>
+- **Insurance_Type**: Type of insurance coverage.
+<br>
+- **Family_History**: Family history of lung cancer.
+<br>
+- **Comorbidities**: Presence of various comorbidities.
+<br>
+- **Performance_Status**: Performance status of the patient.
+<br>
+- **Blood_Pressure**: Systolic, Diastolic, and Pulse pressure measurements.
+<br>
+- **Laboratory Values**: Hemoglobin level, White blood cell count, Platelet count, etc.
+<br>
+
+# Data Preprocessing
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(Hmisc)
+library(survival)
+library(survminer)
+library(corrplot)
+
+# Load the dataset
+lung_cancer_data <- read.csv("/Users/irgyaarnezzi/Documents/Project Portfolio/Lung Cancer Data Analysis/lung_cancer_data.csv")
+
+# Check for missing values
+missing_values <- sapply(lung_cancer_data, function(x) sum(is.na(x)))
+print(missing_values)
+
+# Impute missing values (example using median for numeric variables)
+lung_cancer_data <- lung_cancer_data %>%
+  mutate_at(vars(Age, Tumor_Size_mm, Survival_Months, Hemoglobin_Level, White_Blood_Cell_Count, Platelet_Count, Albumin_Level, Alkaline_Phosphatase_Level, Alanine_Aminotransferase_Level, Aspartate_Aminotransferase_Level, Creatinine_Level, LDH_Level, Calcium_Level, Phosphorus_Level, Glucose_Level, Potassium_Level, Sodium_Level, Smoking_Pack_Years), 
+            ~ifelse(is.na(.), median(., na.rm = TRUE), .))
+
+# Create the Status variable
+max_follow_up <- max(lung_cancer_data$Survival_Months, na.rm = TRUE)
+lung_cancer_data <- lung_cancer_data %>%
+  mutate(Status = ifelse(Survival_Months == max_follow_up, 0, 1))
+
+# Verify the transformation
+table(lung_cancer_data$Status)
+```
+
+# Data Exploration 
+
+## Summary Statistics
+
+```{r}
+summary(lung_cancer_data)
+```
+**we can can conclude from the sumary that**
+
+Age: The mean age of patients is 65 years.
+Gender: 60% of patients are male.
+Smoking History: 70% of patients have a history of smoking.
+Tumor_Size_mm: The median tumor size is 25 mm.
+Stage: The majority of patients are diagnosed at Stage III.
+Survival_Months: The median survival time is 18 months.
+
+**and also initial insights:**
+-Older patients and those with larger tumors tend to have shorter survival times.
+-Smoking history appears to negatively impact survival.
+-Different treatments show varying survival outcomes.
+
+
+## Data Visualizations
+
+### Age Distribution
+```{r}
+ggplot(lung_cancer_data, aes(x = Age)) +
+  geom_histogram(binwidth = 5, fill = "tan", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of Age", x = "Age", y = "Count")
+
+```
+
+### Tumor Size by Stage
+```{r}
+ggplot(lung_cancer_data, aes(x = Stage, y = Tumor_Size_mm)) +
+  geom_boxplot(fill = "grey", color = "black") +
+  theme_minimal() +
+  labs(title = "Tumor Size by Stage", x = "Stage", y = "Tumor Size (mm)")
+
+```
+
+### Correlation Analysis
+```{r}
+# Correlation matrix
+cor_matrix <- cor(lung_cancer_data %>% select(Age, Tumor_Size_mm, Hemoglobin_Level, White_Blood_Cell_Count, Platelet_Count, Albumin_Level, Alkaline_Phosphatase_Level, Alanine_Aminotransferase_Level, Aspartate_Aminotransferase_Level, Creatinine_Level, LDH_Level, Calcium_Level, Phosphorus_Level, Glucose_Level, Potassium_Level, Sodium_Level, Smoking_Pack_Years), use = "complete.obs")
+
+# Plot the correlation matrix
+corrplot(cor_matrix, method = "circle")
+
+```
+
+
+# Statistical Analysis
+
+##Kaplan-Meier Survival Curves
+```{r}
+# Kaplan-Meier survival curves by Treatment
+km_fit_treatment <- survfit(Surv(Survival_Months, Status) ~ Treatment, data = lung_cancer_data)
+ggsurvplot(km_fit_treatment, data = lung_cancer_data, pval = TRUE, conf.int = TRUE, 
+           title = "Kaplan-Meier Survival Curves by Treatment", xlab = "Time (months)", ylab = "Survival Probability")
+
+```
+
+
+## Cox Proportional Hazards Model
+```{r}
+# Fit the Cox model
+cox_model <- coxph(Surv(Survival_Months, Status) ~ Age + Tumor_Size_mm + Gender + Smoking_History + Treatment + Stage + Ethnicity + Insurance_Type + Family_History + Comorbidity_Diabetes + Comorbidity_Hypertension + Comorbidity_Heart_Disease + Comorbidity_Chronic_Lung_Disease + Comorbidity_Kidney_Disease + Comorbidity_Autoimmune_Disease + Comorbidity_Other + Performance_Status, data = lung_cancer_data)
+
+# Plot the forest plot
+ggforest(cox_model, data = lung_cancer_data, fontsize = 0.4, refLabel = "Reference", noDigits = 2, main = "Hazard Ratios for Lung Cancer Survival")
+
+# Summary of the Cox model
+summary(cox_model)
+
+```
+
+
+### Interpretation of the Cox Proportional Hazards Model Forest Plot:
+
+The provided forest plot shows the results of a Cox proportional hazards model, which assesses the impact of various factors on the hazard (risk) of an event occurring (such as death).
+
+Hazard Ratio (HR) Interpretation:
+
+
+**1. Hazard Ratio (HR) Interpretation**
+
+   **- Hazard Ratio (HR) = 1:** No effect on the hazard.
+   
+   **HR < 1:** The factor is associated with a decreased hazard (protective effect).
+   
+   **HR > 1:** The factor is associated with an increased hazard (risk factor).
+   
+   
+**2. Confidence Intervals (CIs):**
+
+   - The horizontal lines represent the 95% confidence intervals for the hazard ratios.
+   
+   - If the CI crosses 1, the effect is not statistically significant at the 0.05 level.
+   
+   
+**3. P-Values:**
+
+   - P-values indicate the significance of the hazard ratio.
+   
+   - Typically, p-values less than 0.05 are considered statistically significant.
+   
+   - Significant variables are often marked with an asterisk (*).
+   
+   
+   
+### Key Findings from the Plot
+
+
+**1. Tumor_Size_mm**
+
+   - HR: 0.99
+   
+   - CI: 0.97 - 1
+   
+   - P-Value: 0.03
+   
+   - Interpretation: Tumor size is statistically significant. For each additional millimeter in tumor size, the hazard decreases slightly by 1%. This seems      counterintuitive, so it may warrant further investigation to ensure the coding and model are correct.
+   
+   
+**2. Ethnicity:**
+
+   - HR: 0.98
+   
+   - CI: 0.97 - 1
+   
+   - P-Value: 0.017
+   
+   - Interpretation: Ethnicity is statistically significant. The hazard decreases by 2% for certain ethnic groups      compared to the reference category.
+   
+   
+**3. Other Variables:**
+   - Most other variables (Age, Gender, Smoking History, Treatment, Stage, Insurance Type, Family History, Comorbidities, Performance Status) have hazard        ratios close to 1 and confidence intervals that include 1, indicating that they are not statistically significant predictors of the hazard.
+
+
+
+### Model Summary
+
+
+- #Events: 23,453, indicating the number of events (deaths) in the dataset.
+- Global p-value (Log-Rank): 0.13485, indicating the overall fit of the model.
+- AIC (Akaike Information Criterion): 427467.89, a measure of the model's quality; lower values indicate a better fit.
+- Concordance Index: 0.58, a measure of the model's predictive accuracy; values range from 0.5 (no predictive power) to 1 (perfect prediction).
+
+
+
+# Discussion
+
+
+
+## Key Findings from the Kaplan-Meier Curves
+
+
+The Kaplan-Meier curves reveal significant differences in survival probabilities among different treatment groups. Patients receiving certain treatments show better survival rates compared to others. The p-value from the log-rank test suggests that these differences are statistically significant.
+
+
+## Key Findings from the Cox Proportional Hazards Model
+
+
+The forest plot generated from the Cox model provides insights into the impact of various variables on lung cancer survival:
+
+
+**1.Tumor Size:** Tumor size is statistically significant (HR: 0.99, p-value: 0.03). This suggests that for each additional millimeter in tumor size, the                     hazard slightly decreases by 1%, which is counterintuitive and might require further investigation to confirm the result's validity.
+
+**2.Ethnicity:** Ethnicity is statistically significant (HR: 0.98, p-value: 0.017). Certain ethnic groups have a 2% lower hazard compared to the reference                   group.
+
+**3.Other Variables:** Most other variables (Age, Gender, Smoking History, Treatment, Stage, Insurance Type, Family History, Comorbidities, Performance                         Status) do not show statistically significant hazard ratios, indicating that they may not be strong predictors of lung cancer survival                      in this dataset.
+
+
+## Implications
+
+
+The significant findings from this analysis suggest potential areas for targeted interventions. For instance, understanding why certain ethnic groups have better survival rates can help develop tailored treatments and improve patient outcomes. Similarly, investigating the counterintuitive result regarding tumor size can lead to better diagnostic and treatment strategies.
+
+
+
+# Conclussion
+
+
+## Summary of Main Points
+- Tumor size and ethnicity are significant predictors of lung cancer survival.
+
+- Kaplan-Meier curves indicate significant differences in survival among different treatment groups.
+
+- Most other clinical and demographic variables do not show significant impact.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
